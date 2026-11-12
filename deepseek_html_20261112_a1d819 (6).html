@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Схема расследования аварий</title>
+
+  <!-- Библиотеки для генерации PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    /* ---------- БАЗОВЫЙ СБРОС ---------- */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background-color: #ffffff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 2rem 1.5rem 3rem;
+      color: #1a2e44;
+    }
+
+    h1 {
+      font-size: 1.9rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: #0b2a40;
+      text-align: center;
+      margin-bottom: 1.8rem;
+      border-bottom: 3px solid #cbdbe9;
+      padding-bottom: 0.8rem;
+      display: inline-block;
+      line-height: 1.3;
+    }
+
+    /* ---------- СТРАНИЦЫ ---------- */
+    .page {
+      width: 100%;
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .page.hidden {
+      display: none;
+    }
+
+    /* ---------- ПОЛЕ 16:9 ---------- */
+    .image-field {
+      position: relative;
+      background-color: #fafcff;
+      border: 2px solid #b7cee2;
+      border-radius: 0;
+      box-shadow: 0 12px 28px -8px rgba(0, 30, 50, 0.12),
+                  0 6px 18px 0 rgba(0, 0, 0, 0.02);
+      width: 100%;
+      transition: border-color 0.2s;
+      overflow: hidden;
+      user-select: none;
+      aspect-ratio: 16 / 9;
+    }
+
+    .image-field:hover {
+      border-color: #7fa9c7;
+    }
+
+    .schema-image {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
+      border-radius: 0;
+      background: #f2f7fc;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    /* ---------- ПЕСОЧНЫЕ ЧАСЫ ---------- */
+    .hourglass {
+      position: absolute;
+      width: 42px;
+      height: 42px;
+      background: #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 4px 10px rgba(0, 20, 30, 0.15),
+                  0 0 0 2px rgba(255, 255, 255, 0.9),
+                  0 0 0 3px #9bb7d0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+      transition: box-shadow 0.2s ease, background 0.2s, transform 0.15s ease;
+      z-index: 10;
+      will-change: left, top;
+      touch-action: none;
+    }
+
+    .hourglass:active { cursor: grabbing; }
+
+    .hourglass.dragging {
+      cursor: grabbing;
+      z-index: 1000;
+      box-shadow: 0 14px 28px rgba(0, 30, 60, 0.35),
+                  0 0 0 3px #e2effb,
+                  0 0 0 5px #4f8ab5;
+      transition: none;
+      transform: scale(1.12);
+    }
+
+    .hourglass:not(.dragging):hover {
+      transform: scale(1.15);
+      background: #f0f7ff;
+      box-shadow: 0 8px 18px rgba(0, 30, 60, 0.25),
+                  0 0 0 3px #e2effb,
+                  0 0 0 4px #4f8ab5;
+      z-index: 30;
+    }
+
+    .hourglass-icon {
+      font-size: 1.7rem;
+      line-height: 1;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));
+      transform: translateY(-1px);
+      pointer-events: none;
+    }
+
+    .hourglass .tooltip-text {
+      visibility: hidden;
+      opacity: 0;
+      width: max-content;
+      max-width: 260px;
+      background-color: #0b2a40;
+      color: #ffffff;
+      font-size: 0.85rem;
+      font-weight: 500;
+      line-height: 1.4;
+      letter-spacing: 0.2px;
+      text-align: center;
+      padding: 0.75rem 1.1rem;
+      border-radius: 1.2rem;
+      position: absolute;
+      bottom: calc(100% + 14px);
+      left: 50%;
+      transform: translateX(-50%);
+      box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.35);
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+      pointer-events: none;
+      white-space: normal;
+      word-break: break-word;
+      z-index: 100;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .hourglass .tooltip-text::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 8px solid transparent;
+      border-top-color: #0b2a40;
+      border-bottom-width: 0;
+    }
+
+    .hourglass:not(.dragging):hover .tooltip-text {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    /* ---------- ПОДПИСЬ ---------- */
+    .field-caption {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #5a768c;
+      margin-top: 1rem;
+      letter-spacing: 0.2px;
+    }
+
+    /* ---------- КНОПКИ ---------- */
+    .btn {
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      border: none;
+      border-radius: 12px;
+      padding: 0.75rem 2rem;
+      cursor: pointer;
+      transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+    }
+
+    .btn:active { transform: translateY(1px); }
+
+    /* Общий синий стиль для "Начать" и "Проверить" */
+    .action-btn {
+      background: #1e6fa8;
+      color: #ffffff;
+      box-shadow: 0 6px 16px -4px rgba(30, 111, 168, 0.5);
+    }
+
+    .action-btn:hover {
+      background: #175a8a;
+      box-shadow: 0 8px 20px -4px rgba(30, 111, 168, 0.6);
+    }
+
+    .action-btn:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    .finish-btn {
+      background: #2e7d5b;
+      box-shadow: 0 6px 16px -4px rgba(46, 125, 91, 0.5);
+    }
+
+    .finish-btn:hover {
+      background: #23634a;
+      box-shadow: 0 8px 20px -4px rgba(46, 125, 91, 0.6);
+    }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.9rem;
+      margin-top: 1.5rem;
+    }
+
+    .check-btn {
+      margin-top: 1.5rem;
+    }
+
+    /* Кнопка "Начать" — тот же синий цвет и отступ, что и "Проверить" */
+    .start-btn {
+      margin-top: 1.5rem;
+    }
+
+    .back-link {
+      margin-top: 0.8rem;
+      font-size: 0.9rem;
+      color: #5a768c;
+      background: none;
+      border: none;
+      cursor: pointer;
+      text-decoration: underline;
+      font-family: inherit;
+    }
+
+    .back-link:hover { color: #1e6fa8; }
+
+    /* ---------- АДАПТИВ ---------- */
+    @media (max-width: 700px) {
+      body { padding: 1.2rem 1rem 2rem; }
+      h1 { font-size: 1.5rem; }
+      .hourglass { width: 36px; height: 36px; }
+      .hourglass-icon { font-size: 1.4rem; }
+      .hourglass .tooltip-text {
+        max-width: 200px;
+        font-size: 0.75rem;
+        padding: 0.6rem 0.8rem;
+      }
+    }
+
+    @media (max-width: 450px) {
+      .hourglass { width: 32px; height: 32px; }
+      .hourglass-icon { font-size: 1.2rem; }
+      .hourglass .tooltip-text {
+        max-width: 160px;
+        font-size: 0.7rem;
+        padding: 0.5rem 0.7rem;
+      }
+      .btn { padding: 0.65rem 1.4rem; font-size: 0.9rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Схема расследования аварий</h1>
+
+  <!-- ================= СТРАНИЦА 0: ТИТУЛЬНАЯ ================= -->
+  <div class="page" id="page0">
+    <div class="image-field" id="imageField0">
+      <img class="schema-image" src="tityl.PNG" alt="Титульная страница">
+    </div>
+
+    <button class="btn action-btn start-btn" id="startBtn">Начать</button>
+  </div>
+
+  <!-- ================= СТРАНИЦА 1: ОСНОВНАЯ СХЕМА ================= -->
+  <div class="page hidden" id="page1">
+    <div class="image-field" id="imageField1">
+      <img class="schema-image" src="shemaavarii.PNG" alt="Схема расследования аварий">
+
+      <!-- Часы: исходная сетка 3 + 3 + 1 -->
+      <div class="hourglass" data-init-left="10px" data-init-top="10px"
+           style="top: 10px; left: 10px;" aria-label="24 часа с момента аварии">
+        <span class="hourglass-icon">⏳</span>
+        <span class="tooltip-text">24 часа с момента аварии</span>
+      </div>
+
+      <div class="hourglass" data-init-left="62px" data-init-top="10px"
+           style="top: 10px; left: 62px;" aria-label="24 часа с момента получения сообщения">
+        <span class="hourglass-icon">⏳</span>
+        <span class="tooltip-text">24 часа с момента получения сообщения</span>
+      </div>
+
+      <div class="hourglass" data-init-left="114px" data-init-top="10px"
+           style="top: 10px; left: 114px;" aria-label="30 календарных дней плюс 15 по необходимости">
+        <span class="hourglass-icon">⏳</span>
+        <span class="tooltip-text">30 календарных дней + 15 (по необходимости)</span>
+      </div>
+
+      <div class="hourglass" data-init-left="10px" data-init-top="62px"
+           style="top: 62px; left: 10px;" aria-label="3 рабочих дня">
+        <span class="hourglass-icon">⏳</span>
+        <span class="tooltip-text">3 рабочих дня</span>
+      </div>
+
+      <div class="hourglass" data-init-left="62px" data-init-top="62px"
+           style="top: 62px; left: 62px;" aria-label="2 недели">
+        <span class="hourglass-icon">⏳</span>
+        <span class="tooltip-text">2 недели</span>
+      </div>
+
+      <div class="hourglass" data-init-left="114px" data-init-top="62px"
+           style="top: 62px; left: 114px;" aria-label="7 рабочих дней">
+        <span class="hourglass-icon">⏳</span>
+        <span class="tooltip-text">7 рабочих дней</span>
+      </div>
+
+      <div class="hourglass" data-init-left="10px" data-init-top="114px"
+           style="top: 114px; left: 10px;" aria-label="10 рабочих дней после выполнения мероприятий">
+        <span class="hourglass-icon">⏳</span>
+        <span class="tooltip-text">10 рабочих дней после выполнения мероприятий</span>
+      </div>
+    </div>
+
+    <div class="field-caption">
+      ⏳ перетаскивайте часы мышью · наведите для подсказки
+    </div>
+
+    <button class="btn action-btn check-btn" id="checkBtn">Проверить</button>
+  </div>
+
+  <!-- ================= СТРАНИЦА 2: ПРОВЕРКА ================= -->
+  <div class="page hidden" id="page2">
+    <div class="image-field" id="imageField2">
+      <img class="schema-image" src="proverka.PNG" alt="Проверка схемы">
+    </div>
+
+    <div class="field-caption">
+      Нажмите «Сохранить», чтобы скачать поле в PDF, или «Завершить», чтобы выйти
+    </div>
+
+    <div class="btn-row">
+      <button class="btn action-btn" id="saveBtn">Сохранить</button>
+      <button class="btn action-btn finish-btn" id="finishBtn">Завершить</button>
+    </div>
+
+    <button class="back-link" id="backBtn">← вернуться к схеме</button>
+  </div>
+
+  <script>
+    (function() {
+      /* ================= СТРАНИЦЫ ================= */
+      const page0 = document.getElementById('page0');
+      const page1 = document.getElementById('page1');
+      const page2 = document.getElementById('page2');
+      const field1 = document.getElementById('imageField1');
+
+      function showPage(page) {
+        [page0, page1, page2].forEach(p => p.classList.add('hidden'));
+        page.classList.remove('hidden');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      /* ================= СБРОС ЧАСОВ В ИСХОДНУЮ СЕТКУ 3+3+1 ================= */
+      function resetHourglasses() {
+        try { localStorage.removeItem('hourglassPositions'); } catch (err) {}
+
+        document.querySelectorAll('#imageField1 .hourglass').forEach(el => {
+          const initLeft = el.dataset.initLeft || '10px';
+          const initTop  = el.dataset.initTop  || '10px';
+          el.style.left = initLeft;
+          el.style.top  = initTop;
+          el.classList.remove('dragging');
+        });
+      }
+
+      /* ================= КНОПКА "НАЧАТЬ" ================= */
+      document.getElementById('startBtn').addEventListener('click', () => {
+        resetHourglasses();
+        showPage(page1);
+      });
+
+      /* ================= КНОПКА "ПРОВЕРИТЬ" ================= */
+      document.getElementById('checkBtn').addEventListener('click', () => {
+        showPage(page2);
+      });
+
+      /* ================= КНОПКА "ЗАВЕРШИТЬ" ================= */
+      document.getElementById('finishBtn').addEventListener('click', () => {
+        showPage(page1);
+      });
+
+      /* ================= ССЫЛКА "НАЗАД К СХЕМЕ" ================= */
+      document.getElementById('backBtn').addEventListener('click', () => {
+        showPage(page1);
+      });
+
+      /* ================= DRAG & DROP ================= */
+      let dragEl = null;
+      let offsetX = 0, offsetY = 0;
+
+      function clampPosition(field, el, leftPx, topPx) {
+        const fieldRect = field.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const maxLeft = fieldRect.width - elRect.width;
+        const maxTop  = fieldRect.height - elRect.height;
+        return {
+          left: Math.max(0, Math.min(leftPx, maxLeft)),
+          top:  Math.max(0, Math.min(topPx,  maxTop))
+        };
+      }
+
+      function getPoint(e) {
+        if (e.touches && e.touches.length > 0) {
+          return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        } else if (e.changedTouches && e.changedTouches.length > 0) {
+          return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+        } else if (typeof e.clientX === 'number') {
+          return { x: e.clientX, y: e.clientY };
+        }
+        return null;
+      }
+
+      function startDrag(e) {
+        const el = e.currentTarget;
+        if (dragEl) return;
+        const point = getPoint(e);
+        if (!point) return;
+
+        dragEl = el;
+        el.classList.add('dragging');
+
+        const elRect = el.getBoundingClientRect();
+        offsetX = point.x - elRect.left;
+        offsetY = point.y - elRect.top;
+
+        if (e.type === 'mousedown') {
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onEnd);
+        } else {
+          window.addEventListener('touchmove', onMove, { passive: false });
+          window.addEventListener('touchend', onEnd);
+          window.addEventListener('touchcancel', onEnd);
+        }
+        e.preventDefault();
+      }
+
+      function onMove(e) {
+        if (!dragEl) return;
+        e.preventDefault();
+        const point = getPoint(e);
+        if (!point) return;
+
+        const fieldRect = field1.getBoundingClientRect();
+        let newLeft = point.x - fieldRect.left - offsetX;
+        let newTop  = point.y - fieldRect.top  - offsetY;
+
+        const clamped = clampPosition(field1, dragEl, newLeft, newTop);
+        dragEl.style.left = clamped.left + 'px';
+        dragEl.style.top  = clamped.top  + 'px';
+      }
+
+      function onEnd() {
+        if (!dragEl) return;
+        dragEl.classList.remove('dragging');
+        dragEl = null;
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onEnd);
+        window.removeEventListener('touchmove', onMove);
+        window.removeEventListener('touchend', onEnd);
+        window.removeEventListener('touchcancel', onEnd);
+        savePositions();
+      }
+
+      function savePositions() {
+        const hourglasses = document.querySelectorAll('#imageField1 .hourglass');
+        const positions = [];
+        hourglasses.forEach((el) => {
+          positions.push({ left: el.style.left, top: el.style.top });
+        });
+        try {
+          localStorage.setItem('hourglassPositions', JSON.stringify(positions));
+        } catch (err) { /* ignore */ }
+      }
+
+      function restorePositions() {
+        try {
+          const saved = localStorage.getItem('hourglassPositions');
+          if (!saved) return;
+          const positions = JSON.parse(saved);
+          const hourglasses = document.querySelectorAll('#imageField1 .hourglass');
+          positions.forEach((pos, i) => {
+            if (hourglasses[i] && pos.left && pos.top) {
+              hourglasses[i].style.left = pos.left;
+              hourglasses[i].style.top = pos.top;
+            }
+          });
+        } catch (err) { /* ignore */ }
+      }
+
+      document.querySelectorAll('#imageField1 .hourglass').forEach(el => {
+        el.addEventListener('mousedown', startDrag);
+        el.addEventListener('touchstart', startDrag, { passive: false });
+      });
+
+      window.addEventListener('resize', () => {
+        document.querySelectorAll('#imageField1 .hourglass').forEach(el => {
+          if (el.style.left.includes('%') || el.style.top.includes('%')) return;
+          const currentLeft = parseFloat(el.style.left) || 0;
+          const currentTop  = parseFloat(el.style.top)  || 0;
+          const clamped = clampPosition(field1, el, currentLeft, currentTop);
+          el.style.left = clamped.left + 'px';
+          el.style.top  = clamped.top  + 'px';
+        });
+        savePositions();
+      });
+
+      restorePositions();
+
+      /* ================= СОХРАНЕНИЕ В PDF ================= */
+      const saveBtn = document.getElementById('saveBtn');
+      const imageField2 = document.getElementById('imageField2');
+
+      saveBtn.addEventListener('click', async () => {
+        const originalText = saveBtn.textContent;
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Готовим PDF…';
+
+        try {
+          const canvas = await html2canvas(imageField2, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            logging: false
+          });
+
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF({
+            orientation: 'landscape',
+            unit: 'mm',
+            format: 'a4'
+          });
+
+          const pageW = pdf.internal.pageSize.getWidth();
+          const pageH = pdf.internal.pageSize.getHeight();
+
+          const canvasRatio = canvas.width / canvas.height;
+          let imgW = pageW;
+          let imgH = pageW / canvasRatio;
+          if (imgH > pageH) {
+            imgH = pageH;
+            imgW = pageH * canvasRatio;
+          }
+          const x = (pageW - imgW) / 2;
+          const y = (pageH - imgH) / 2;
+
+          const imgData = canvas.toDataURL('image/png');
+          pdf.addImage(imgData, 'PNG', x, y, imgW, imgH);
+          pdf.save('proverka.pdf');
+
+          saveBtn.textContent = 'Готово!';
+          setTimeout(() => {
+            saveBtn.textContent = originalText;
+            saveBtn.disabled = false;
+          }, 1200);
+        } catch (err) {
+          console.error('Ошибка при создании PDF:', err);
+          saveBtn.textContent = 'Ошибка';
+          setTimeout(() => {
+            saveBtn.textContent = originalText;
+            saveBtn.disabled = false;
+          }, 1500);
+        }
+      });
+
+      /* ================= СБРОС ПОЗИЦИЙ (двойной клик по полю 1) ================= */
+      field1.addEventListener('dblclick', function(e) {
+        if (e.target.closest('.hourglass')) return;
+        if (confirm('Сбросить позиции всех песочных часов?')) {
+          resetHourglasses();
+        }
+      });
+    })();
+  </script>
+
+</body>
+</html>
